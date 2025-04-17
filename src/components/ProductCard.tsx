@@ -23,6 +23,7 @@ export interface Product {
   isSeasonal: boolean;
   category: string;
   stock: number;
+  description?: string; // Add the description field as optional
 }
 
 interface ProductCardProps {

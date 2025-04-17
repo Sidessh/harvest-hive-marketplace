@@ -95,21 +95,21 @@ export const useAdvancedSearch = (filters: SearchFilters) => {
         isLocal: item.local || false, 
         isSeasonal: item.seasonal || false,
         category: item.category || '',
-        stock: item.stock || 0
+        stock: item.stock || 0,
+        description: item.description || '' // Map the description field
       })) as Product[];
       
       // Apply our own advanced ranking algorithm on the client side
-      // This simulates aspects of ML-based ranking without requiring external libraries
       if (filters.query && filters.query.trim() !== '') {
         return products.sort((a, b) => {
           // Calculate text relevance scores
           const queryText = filters.query.trim();
           const aNameScore = calculateTextRelevance(a.name, queryText) * 2; // Name is most important
-          const aDescScore = calculateTextRelevance(a.description || '', queryText);
+          const aDescScore = calculateTextRelevance(a.description || '', queryText); // Use optional chaining for description
           const aCategoryScore = calculateTextRelevance(a.category, queryText) * 1.5; // Category is also important
           
           const bNameScore = calculateTextRelevance(b.name, queryText) * 2;
-          const bDescScore = calculateTextRelevance(b.description || '', queryText);
+          const bDescScore = calculateTextRelevance(b.description || '', queryText); // Use optional chaining for description
           const bCategoryScore = calculateTextRelevance(b.category, queryText) * 1.5;
           
           // Calculate popularity scores
