@@ -2,6 +2,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Product } from "@/components/ProductCard";
+import { rankProducts, initEmbeddingModel } from "@/utils/searchUtils";
+import { useEffect } from "react";
 
 interface SearchFilters {
   query: string;
@@ -10,37 +12,10 @@ interface SearchFilters {
   maxPrice?: number;
 }
 
-// Helper function for advanced text matching
-const calculateTextRelevance = (text: string, query: string): number => {
-  if (!text || !query) return 0;
-  
-  const normalizedText = text.toLowerCase();
-  const normalizedQuery = query.toLowerCase();
-  const queryTerms = normalizedQuery.split(/\s+/).filter(term => term.length > 1);
-  
-  // Calculate relevance based on term frequency and exact matching
-  let relevance = 0;
-  
-  // Exact match bonus
-  if (normalizedText.includes(normalizedQuery)) {
-    relevance += 10;
-  }
-  
-  // Term frequency
-  queryTerms.forEach(term => {
-    if (normalizedText.includes(term)) {
-      // Add relevance based on term appearance
-      relevance += 3;
-      
-      // Add bonus for term at start of text (likely more relevant)
-      if (normalizedText.startsWith(term)) {
-        relevance += 5;
-      }
-    }
-  });
-  
-  return relevance;
-};
+// Initialize embedding model when module loads
+initEmbeddingModel().catch(err => {
+  console.warn("Failed to initialize embedding model:", err);
+});
 
 export const useAdvancedSearch = (filters: SearchFilters) => {
   return useQuery({
@@ -49,12 +24,6 @@ export const useAdvancedSearch = (filters: SearchFilters) => {
       let query = supabase
         .from('products')
         .select('*');
-      
-      // Apply text search filter
-      if (filters.query && filters.query.trim() !== '') {
-        const searchTerms = filters.query.trim();
-        query = query.or(`name.ilike.%${searchTerms}%,description.ilike.%${searchTerms}%,category.ilike.%${searchTerms}%`);
-      }
       
       // Apply category filter
       if (filters.categories && filters.categories.length > 0) {
@@ -68,6 +37,14 @@ export const useAdvancedSearch = (filters: SearchFilters) => {
       
       if (filters.maxPrice !== undefined) {
         query = query.lte('price', filters.maxPrice);
+      }
+      
+      // If there's a text query, we'll load more products and rank them client-side
+      // For no query, we apply database-side filtering only
+      if (filters.query && filters.query.trim() !== '') {
+        // Add a basic filter to reduce initial result set
+        const searchTerms = filters.query.trim();
+        query = query.or(`name.ilike.%${searchTerms}%,description.ilike.%${searchTerms}%,category.ilike.%${searchTerms}%`);
       }
       
       // Execute the query
@@ -96,37 +73,24 @@ export const useAdvancedSearch = (filters: SearchFilters) => {
         isSeasonal: item.seasonal || false,
         category: item.category || '',
         stock: item.stock || 0,
-        description: item.description || '' // Map the description field
+        description: item.description || ''
       })) as Product[];
       
-      // Apply our own advanced ranking algorithm on the client side
+      // Apply our advanced ranking algorithm with ML features
       if (filters.query && filters.query.trim() !== '') {
-        return products.sort((a, b) => {
-          // Calculate text relevance scores
-          const queryText = filters.query.trim();
-          const aNameScore = calculateTextRelevance(a.name, queryText) * 2; // Name is most important
-          const aDescScore = calculateTextRelevance(a.description || '', queryText); // Use optional chaining for description
-          const aCategoryScore = calculateTextRelevance(a.category, queryText) * 1.5; // Category is also important
-          
-          const bNameScore = calculateTextRelevance(b.name, queryText) * 2;
-          const bDescScore = calculateTextRelevance(b.description || '', queryText); // Use optional chaining for description
-          const bCategoryScore = calculateTextRelevance(b.category, queryText) * 1.5;
-          
-          // Calculate popularity scores
-          const aPopularityScore = (a.rating * 2) + (a.reviews * 0.1);
-          const bPopularityScore = (b.rating * 2) + (b.reviews * 0.1);
-          
-          // Final scores combine relevance and popularity (70% relevance, 30% popularity)
-          const aFinalScore = ((aNameScore + aDescScore + aCategoryScore) * 0.7) + (aPopularityScore * 0.3);
-          const bFinalScore = ((bNameScore + bDescScore + bCategoryScore) * 0.7) + (bPopularityScore * 0.3);
-          
-          return bFinalScore - aFinalScore; // Sort by highest score
-        });
+        try {
+          console.log("Using advanced ranking with ML features");
+          return await rankProducts(products, filters.query);
+        } catch (err) {
+          console.error("Error in advanced ranking:", err);
+          // Fallback to basic sorting if ML ranking fails
+          return products;
+        }
       }
       
       // If no query or after sorting
       return products;
     },
-    enabled: !!filters.query
+    enabled: true // Always enabled so we can show results
   });
 };
