@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, Link } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import ProductCard from "@/components/ProductCard";
@@ -8,6 +8,7 @@ import RecommendedProducts from "@/components/RecommendedProducts";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
 import { useAdvancedSearch } from "@/hooks/use-advanced-search";
+import { Sliders } from "lucide-react";
 
 const Search = () => {
   const [searchParams] = useSearchParams();
@@ -50,21 +51,32 @@ const Search = () => {
       <Navbar />
       <main className="flex-grow bg-gray-50 py-8">
         <div className="container mx-auto px-4">
-          <h1 className="text-2xl md:text-3xl font-bold mb-1 text-harvest-dark">
-            {query ? `Search results for "${query}"` : "Search"}
-          </h1>
-          <p className="text-gray-600 mb-6">
-            {isLoading 
-              ? "Searching for products..." 
-              : results?.length > 0 
-                ? `Found ${results.length} products` 
-                : "No products found. Try a different search term."}
-          </p>
+          <div className="flex justify-between items-center mb-6">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-bold mb-1 text-harvest-dark">
+                {query ? `Search results for "${query}"` : "Search"}
+              </h1>
+              <p className="text-gray-600">
+                {isLoading 
+                  ? "Searching for products..." 
+                  : results?.length > 0 
+                    ? `Found ${results.length} products` 
+                    : "No products found. Try a different search term."}
+              </p>
+            </div>
+            <Link to="/model-training">
+              <Button variant="outline" className="flex items-center gap-2">
+                <Sliders size={16} />
+                <span className="hidden md:inline">Train Search Model</span>
+                <span className="md:hidden">Train</span>
+              </Button>
+            </Link>
+          </div>
 
           {/* Advanced search information */}
           {query && !isLoading && results?.length > 0 && (
             <p className="text-sm text-harvest-primary mb-4">
-              Results are ranked using advanced relevance scoring based on text matching and product popularity
+              Results are ranked using advanced machine learning with BM25 relevance scoring, semantic embeddings, and product popularity metrics
             </p>
           )}
 

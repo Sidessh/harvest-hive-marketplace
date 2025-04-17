@@ -150,12 +150,273 @@ export const calculateBM25Score = (
   return score;
 };
 
+// Training dataset type definition
+export interface TrainingExample {
+  query: string;
+  productId: number;
+  isRelevant: boolean;
+  clickPosition?: number;
+}
+
+// Model weights type definition
+export interface ModelWeights {
+  exactMatchWeight: number;
+  bm25Weight: number;
+  semanticWeight: number;
+  popularityWeight: number;
+  recencyWeight: number;
+}
+
+// Default model weights
+const DEFAULT_WEIGHTS: ModelWeights = {
+  exactMatchWeight: 3.0,
+  bm25Weight: 2.0, 
+  semanticWeight: 2.5,
+  popularityWeight: 1.0,
+  recencyWeight: 0.5
+};
+
+// Variable to store the trained model weights
+let trainedWeights: ModelWeights = { ...DEFAULT_WEIGHTS };
+
+/**
+ * Save trained model to localStorage
+ */
+export const saveTrainedModel = (weights: ModelWeights): void => {
+  try {
+    localStorage.setItem('searchModelWeights', JSON.stringify(weights));
+    console.log('Model weights saved successfully');
+  } catch (err) {
+    console.error('Failed to save model weights:', err);
+  }
+};
+
+/**
+ * Load trained model from localStorage
+ */
+export const loadTrainedModel = (): ModelWeights | null => {
+  try {
+    const savedWeights = localStorage.getItem('searchModelWeights');
+    if (savedWeights) {
+      return JSON.parse(savedWeights) as ModelWeights;
+    }
+    return null;
+  } catch (err) {
+    console.error('Failed to load model weights:', err);
+    return null;
+  }
+};
+
+/**
+ * Feature extraction for the learning-to-rank model
+ * Extracts features for a query-product pair
+ */
+export const extractFeatures = async (
+  query: string,
+  product: Product
+): Promise<number[]> => {
+  // Calculate BM25 scores
+  const titleLength = (product.name || '').split(/\s+/).length;
+  const descLength = (product.description || '').split(/\s+/).length;
+  const categoryLength = (product.category || '').split(/\s+/).length;
+  
+  const titleBM25 = calculateBM25Score(
+    query,
+    product.name,
+    titleLength,
+    BM25_PARAMS.avgDocLength,
+    BM25_PARAMS.k1,
+    BM25_PARAMS.b
+  );
+  
+  const descriptionBM25 = calculateBM25Score(
+    query,
+    product.description || '',
+    descLength,
+    BM25_PARAMS.avgDocLength,
+    BM25_PARAMS.k1,
+    BM25_PARAMS.b
+  );
+  
+  const categoryBM25 = calculateBM25Score(
+    query,
+    product.category || '',
+    categoryLength,
+    BM25_PARAMS.avgDocLength,
+    BM25_PARAMS.k1,
+    BM25_PARAMS.b
+  );
+  
+  // Calculate exact match signals
+  const hasExactTitleMatch = product.name.toLowerCase().includes(query.toLowerCase());
+  const hasExactCategoryMatch = (product.category || '').toLowerCase().includes(query.toLowerCase());
+  
+  // Calculate semantic similarity if embeddings are available
+  let semanticSimilarity = 0;
+  try {
+    const queryEmbedding = await getEmbedding(query);
+    if (queryEmbedding) {
+      const productText = `${product.name} ${product.category || ''} ${product.description || ''}`;
+      const productEmbedding = await getEmbedding(productText);
+      if (productEmbedding) {
+        semanticSimilarity = cosineSimilarity(queryEmbedding, productEmbedding);
+      }
+    }
+  } catch (err) {
+    console.error('Error calculating semantic similarity:', err);
+  }
+  
+  // Return features as an array
+  return [
+    hasExactTitleMatch ? 1 : 0,
+    hasExactCategoryMatch ? 1 : 0,
+    titleBM25,
+    descriptionBM25,
+    categoryBM25,
+    semanticSimilarity,
+    product.rating || 0,
+    product.reviews || 0,
+    product.isOrganic ? 1 : 0,
+    product.isLocal ? 1 : 0,
+    product.isSeasonal ? 1 : 0
+  ];
+};
+
+/**
+ * Train the model using gradient descent
+ * This is a simplified learning-to-rank model
+ */
+export const trainModel = async (
+  trainingData: TrainingExample[],
+  products: Product[],
+  learningRate: number = 0.01,
+  epochs: number = 50
+): Promise<ModelWeights> => {
+  console.log(`Starting model training with ${trainingData.length} examples`);
+  
+  // Initialize weights or load existing
+  let weights = loadTrainedModel() || { ...DEFAULT_WEIGHTS };
+  const productsMap = new Map<number, Product>();
+  products.forEach(p => productsMap.set(p.id, p));
+  
+  // Training loop
+  for (let epoch = 0; epoch < epochs; epoch++) {
+    let totalLoss = 0;
+    
+    // Process each training example
+    for (const example of trainingData) {
+      const product = productsMap.get(example.productId);
+      if (!product) continue;
+      
+      // Extract features
+      const features = await extractFeatures(example.query, product);
+      
+      // Calculate predicted score
+      const predictedScore = 
+        features[0] * weights.exactMatchWeight + 
+        features[2] * weights.bm25Weight +
+        features[5] * weights.semanticWeight +
+        features[6] * weights.popularityWeight +
+        (features[8] + features[9] + features[10]) * weights.recencyWeight;
+      
+      // Calculate loss (using binary cross-entropy for relevance)
+      const targetScore = example.isRelevant ? 1 : 0;
+      const loss = Math.pow(predictedScore - targetScore, 2);
+      totalLoss += loss;
+      
+      // Calculate gradients and update weights
+      const gradientExactMatch = 2 * (predictedScore - targetScore) * features[0];
+      const gradientBM25 = 2 * (predictedScore - targetScore) * features[2];
+      const gradientSemantic = 2 * (predictedScore - targetScore) * features[5];
+      const gradientPopularity = 2 * (predictedScore - targetScore) * features[6];
+      const gradientRecency = 2 * (predictedScore - targetScore) * (features[8] + features[9] + features[10]);
+      
+      // Update weights
+      weights.exactMatchWeight -= learningRate * gradientExactMatch;
+      weights.bm25Weight -= learningRate * gradientBM25;
+      weights.semanticWeight -= learningRate * gradientSemantic;
+      weights.popularityWeight -= learningRate * gradientPopularity;
+      weights.recencyWeight -= learningRate * gradientRecency;
+      
+      // Prevent negative weights
+      weights.exactMatchWeight = Math.max(0.1, weights.exactMatchWeight);
+      weights.bm25Weight = Math.max(0.1, weights.bm25Weight);
+      weights.semanticWeight = Math.max(0.1, weights.semanticWeight);
+      weights.popularityWeight = Math.max(0.1, weights.popularityWeight);
+      weights.recencyWeight = Math.max(0.1, weights.recencyWeight);
+    }
+    
+    // Log progress
+    if (epoch % 10 === 0 || epoch === epochs - 1) {
+      console.log(`Epoch ${epoch}, Loss: ${totalLoss / trainingData.length}`);
+      console.log('Current weights:', weights);
+    }
+  }
+  
+  // Save the trained model
+  saveTrainedModel(weights);
+  trainedWeights = weights;
+  
+  return weights;
+};
+
+/**
+ * Export training data to a file for local use
+ */
+export const exportTrainingData = (trainingData: TrainingExample[]): void => {
+  const dataStr = JSON.stringify(trainingData, null, 2);
+  const dataUri = `data:application/json;charset=utf-8,${encodeURIComponent(dataStr)}`;
+  
+  const downloadLink = document.createElement('a');
+  downloadLink.setAttribute('href', dataUri);
+  downloadLink.setAttribute('download', 'search-training-data.json');
+  document.body.appendChild(downloadLink);
+  downloadLink.click();
+  document.body.removeChild(downloadLink);
+};
+
+/**
+ * Import training data from a file
+ */
+export const importTrainingData = async (): Promise<TrainingExample[] | null> => {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) {
+        resolve(null);
+        return;
+      }
+      
+      const reader = new FileReader();
+      reader.onload = (readerEvent) => {
+        try {
+          const content = readerEvent.target?.result as string;
+          const data = JSON.parse(content) as TrainingExample[];
+          resolve(data);
+        } catch (err) {
+          console.error('Error parsing training data:', err);
+          resolve(null);
+        }
+      };
+      
+      reader.readAsText(file);
+    };
+    
+    input.click();
+  });
+};
+
 /**
  * Comprehensive product ranking function that combines:
  * 1. BM25 text relevance
  * 2. Semantic similarity via embeddings
  * 3. Product popularity signals
  * 4. Business rules (featured products, etc)
+ * 5. Trained model weights if available
  */
 export const rankProducts = async (
   products: Product[], 
@@ -166,6 +427,10 @@ export const rankProducts = async (
   }
   
   const normalizedQuery = query.trim().toLowerCase();
+  
+  // Load trained weights if available
+  const weights = loadTrainedModel() || trainedWeights || DEFAULT_WEIGHTS;
+  console.log('Using model weights:', weights);
   
   // Calculate average document length for BM25
   const totalLength = products.reduce((sum, product) => {
@@ -257,11 +522,11 @@ export const rankProducts = async (
       
       // Calculate final score
       const finalScore = 
-        exactMatchScore * SEARCH_WEIGHTS.exactMatch +
-        bm25Score * SEARCH_WEIGHTS.bm25Score +
-        semanticScore * SEARCH_WEIGHTS.semanticScore +
-        popularityScore * SEARCH_WEIGHTS.popularityScore +
-        businessRulesScore;
+        exactMatchScore * weights.exactMatchWeight +
+        bm25Score * weights.bm25Weight +
+        semanticScore * weights.semanticWeight +
+        popularityScore * weights.popularityWeight +
+        businessRulesScore * weights.recencyWeight;
       
       return {
         product,
