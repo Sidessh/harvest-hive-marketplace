@@ -46,7 +46,25 @@ export const useAdvancedSearch = (filters: SearchFilters) => {
         throw error;
       }
 
-      return data as Product[];
+      // Map the database fields to match the Product type format
+      return (data || []).map(item => ({
+        id: item.id,
+        name: item.name,
+        price: item.price,
+        image: item.image || '',
+        farmer: {
+          id: item.farmer_id || 0,
+          name: 'Farmer', // Default value as we don't have actual farmer data
+          location: 'Unknown Location'
+        },
+        rating: item.rating || 0,
+        reviews: item.reviews_count || 0,
+        isOrganic: item.organic || false,
+        isLocal: item.local || false, 
+        isSeasonal: item.seasonal || false,
+        category: item.category || '',
+        stock: item.stock || 0
+      })) as Product[];
     },
     enabled: !!filters.query
   });
