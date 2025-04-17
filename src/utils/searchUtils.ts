@@ -39,7 +39,7 @@ export const initEmbeddingModel = async (): Promise<void> => {
     embeddingModel = await pipeline(
       "feature-extraction",
       "mixedbread-ai/mxbai-embed-xsmall-v1",
-      { quantized: true, device: "cpu" } // Use CPU initially, WebGPU as fallback
+      { device: "cpu" } // Removed the quantized property which is not in the type definition
     );
     console.log("Embedding model initialized successfully");
   } catch (error) {
@@ -75,8 +75,8 @@ export const getEmbedding = async (text: string): Promise<number[] | null> => {
       normalize: true 
     });
     
-    // Convert to simple array and cache
-    const embedding = Array.from(result.data);
+    // Convert to simple array and cache with explicit type assertion
+    const embedding = Array.from(result.data) as number[];
     embeddingCache.set(text, embedding);
     return embedding;
   } catch (error) {
