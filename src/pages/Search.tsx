@@ -1,47 +1,49 @@
-
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import ProductCard from "@/components/ProductCard";
 import RecommendedProducts from "@/components/RecommendedProducts";
-import { searchProducts } from "@/data/products";
 import { Button } from "@/components/ui/button";
 import { Product } from "@/components/ProductCard";
 import { useToast } from "@/components/ui/use-toast";
+import { useAdvancedSearch } from "@/hooks/use-advanced-search";
 
 const Search = () => {
   const [searchParams] = useSearchParams();
   const query = searchParams.get("q") || "";
-  const [results, setResults] = useState<Product[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
 
+  const [filters, setFilters] = useState({
+    query,
+    categories: undefined,
+    minPrice: undefined,
+    maxPrice: undefined
+  });
+
+  const { data: results, isLoading, error } = useAdvancedSearch(filters);
+
   useEffect(() => {
-    if (query) {
-      setIsLoading(true);
-      // Simulate network delay for realistic search experience
-      const timer = setTimeout(() => {
-        const searchResults = searchProducts(query);
-        setResults(searchResults);
-        setIsLoading(false);
-        
-        // Show toast notification for search results
-        toast({
-          title: `${searchResults.length} results found`,
-          description: searchResults.length > 0 
-            ? `Showing results for "${query}"` 
-            : `No results found for "${query}". Try different keywords.`,
-          variant: searchResults.length > 0 ? "default" : "destructive",
-        });
-      }, 500);
-      
-      return () => clearTimeout(timer);
-    } else {
-      setResults([]);
-      setIsLoading(false);
+    setFilters(prev => ({ ...prev, query }));
+  }, [query]);
+
+  useEffect(() => {
+    if (error) {
+      toast({
+        title: "Search error",
+        description: "There was an error performing the search. Please try again.",
+        variant: "destructive",
+      });
+    } else if (results) {
+      toast({
+        title: `${results.length} results found`,
+        description: results.length > 0 
+          ? `Showing results for "${query}"` 
+          : `No results found for "${query}". Try different keywords.`,
+        variant: results.length > 0 ? "default" : "destructive",
+      });
     }
-  }, [query, toast]);
+  }, [results, error, query, toast]);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -54,7 +56,7 @@ const Search = () => {
           <p className="text-gray-600 mb-6">
             {isLoading 
               ? "Searching for products..." 
-              : results.length > 0 
+              : results?.length > 0 
                 ? `Found ${results.length} products` 
                 : "No products found. Try a different search term."}
           </p>
@@ -73,7 +75,7 @@ const Search = () => {
                 </div>
               ))}
             </div>
-          ) : results.length > 0 ? (
+          ) : results?.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
               {results.map((product) => (
                 <ProductCard key={product.id} product={product} />
@@ -95,8 +97,7 @@ const Search = () => {
             </div>
           ) : null}
           
-          {/* Add recommendations when there are no or few results */}
-          {query && !isLoading && results.length < 2 && (
+          {query && !isLoading && (!results || results.length < 2) && (
             <RecommendedProducts 
               title="You Might Also Like" 
               description="Popular products from our farmers"
