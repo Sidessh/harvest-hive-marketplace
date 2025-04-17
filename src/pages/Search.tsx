@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import Navbar from "@/components/Navbar";
@@ -5,7 +6,6 @@ import Footer from "@/components/Footer";
 import ProductCard from "@/components/ProductCard";
 import RecommendedProducts from "@/components/RecommendedProducts";
 import { Button } from "@/components/ui/button";
-import { Product } from "@/components/ProductCard";
 import { useToast } from "@/components/ui/use-toast";
 import { useAdvancedSearch } from "@/hooks/use-advanced-search";
 
@@ -34,7 +34,7 @@ const Search = () => {
         description: "There was an error performing the search. Please try again.",
         variant: "destructive",
       });
-    } else if (results) {
+    } else if (results && !isLoading) {
       toast({
         title: `${results.length} results found`,
         description: results.length > 0 
@@ -43,7 +43,7 @@ const Search = () => {
         variant: results.length > 0 ? "default" : "destructive",
       });
     }
-  }, [results, error, query, toast]);
+  }, [results, error, query, toast, isLoading]);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -60,6 +60,13 @@ const Search = () => {
                 ? `Found ${results.length} products` 
                 : "No products found. Try a different search term."}
           </p>
+
+          {/* Advanced search information */}
+          {query && !isLoading && results?.length > 0 && (
+            <p className="text-sm text-harvest-primary mb-4">
+              Results are ranked using advanced relevance scoring based on text matching and product popularity
+            </p>
+          )}
 
           {isLoading ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
